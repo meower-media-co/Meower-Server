@@ -382,7 +382,7 @@ class MeowerCommands:
         security.ratelimit(f"login:u:{client.username}:f", 5, 60)
         
         # Check password
-        account = self.files.db.usersv0.find_one({"_id": client.username}, projection={"pswd": 1})
+        account = db.usersv0.find_one({"_id": client.username}, projection={"pswd": 1})
         if not security.check_password_hash(val, account["pswd"]):
             return await client.send_statuscode("PasswordInvalid", listener)
 
@@ -487,6 +487,9 @@ class MeowerCommands:
                     "$set": {"owner": chat["owner"]},
                     "$pull": {"members": client.username}
                 })
+
+                # Delete invites
+                db.chat_invites.delete_many({"chat_id": chat["_id"], "inviter": client.username})
 
                 # Send update chat event
                 self.cl.broadcast({
@@ -641,6 +644,16 @@ class MeowerCommands:
         ]}, limit=1) > 0:
             return await client.send_statuscode("MissingPermissions", listener)
 
+        # Make sure requested user isn't banned from the chat
+        if db.chat_bans.count_documents({"_id": {
+            "chat": chat["_id"],
+            "user": username
+        }, "$or": [
+            {"expires": None},
+            {"expires": {"$gt": int(time.time())}}
+        ]}, limit=1) > 0:
+            return await client.send_statuscode("UserBanned", listener)
+
         # Update chat
         chat["members"].append(username)
         db.chats.update_one({"_id": chatid}, {"$addToSet": {"members": username}})
@@ -718,6 +731,9 @@ class MeowerCommands:
         chat["members"].remove(username)
         db.chats.update_one({"_id": chatid}, {"$pull": {"members": username}})
 
+        # Delete invites
+        db.chat_invites.delete_many({"chat_id": chat["_id"], "inviter": username})
+
         # Send delete chat event
         self.cl.broadcast({
             "mode": "delete",
@@ -776,8 +792,10 @@ class MeowerCommands:
             })
             if not chat:
                 return await client.send_statuscode("IDNotFound", listener)
+
         
         # Send new state
+        # noinspection PyUnboundLocalVariable
         self.cl.broadcast({
             "chatid": chatid,
             "u": client.username,
@@ -889,6 +907,7 @@ class MeowerCommands:
                 ],)).start()
 
         # Create post
+        # noinspection PyUnboundLocalVariable
         self.supporter.create_post(chatid, client.username, content, chat_members=(chat["members"] if chatid != "livechat" else None))
         
         # Tell the client the post was created
@@ -929,6 +948,8 @@ class MeowerCommands:
             if not chat:
                 return await client.send_statuscode("MissingPermissions", listener)
         if post["post_origin"] == "inbox" or post["u"] != client.username:
+            # noinspection PyUnboundLocalVariable
+
             if (post["post_origin"] in ["home", "inbox"]) or (chat["owner"] != client.username):
                 return await client.send_statuscode("MissingPermissions", listener)
 
@@ -946,6 +967,7 @@ class MeowerCommands:
 
         await client.send_statuscode("OK", listener)
 
+    # noinspection PyMethodMayBeStatic,PyTypeChecker
     async def report(self, client: CloudlinkClient, val: str, listener: str = None):
         # Make sure the client is authenticated
         if not client.username:
@@ -1007,6 +1029,7 @@ class MeowerCommands:
                 "reports": []
             }
         for _report in report["reports"]:
+            # noinspection PyTypeChecker
             if _report["user"] == client.username:
                 report["reports"].remove(_report)
                 break
@@ -1024,6 +1047,7 @@ class MeowerCommands:
 
         # Automatically remove post and escalate report if report threshold is reached
         if content_type == 0 and report["status"] == "pending" and (not report["escalated"]):
+            # noinspection PyTypeChecker
             unique_ips = set([_report["ip"] for _report in report["reports"]])
             if len(unique_ips) >= 3:
                 db.reports.update_one({"_id": report["_id"]}, {"$set": {"escalated": True}})

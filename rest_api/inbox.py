@@ -1,5 +1,9 @@
 from quart import Blueprint, request, abort
 import pymongo
+from .api_types import AuthenticatedRequest, MeowerQuart
+
+request: AuthenticatedRequest
+app: MeowerQuart
 
 from database import db, get_total_pages
 

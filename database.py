@@ -29,14 +29,6 @@ else:
     log("Successfully connected to database!")
 
 
-# Create database collections
-existing_collections = db.list_collection_names()
-for collection_name in []:
-    if collection_name not in existing_collections:
-        log(f"Creating {collection_name} database collection...")
-        db.create_collection(collection_name)
-
-
 # Create usersv0 indexes
 try: db.usersv0.create_index([("lower_username", pymongo.ASCENDING)], name="lower_username", unique=True)
 except: pass
@@ -117,6 +109,25 @@ try:
         ("members", pymongo.ASCENDING),
         ("type", pymongo.ASCENDING)
     ], name="user_chats")
+except: pass
+
+# Create chat invites indexes
+try:
+    db.chat_invites.create_index([
+        ("chat_id", pymongo.ASCENDING)
+    ], name="chat")
+except: pass
+
+# Create chat bans indexes
+try:
+    db.chat_bans.create_index([
+        ("_id.chat", pymongo.ASCENDING)
+    ], name="chat")
+except: pass
+try:
+    db.chat_bans.create_index([
+        ("_id.user", pymongo.ASCENDING)
+    ], name="user")
 except: pass
 
 # Create reports indexes

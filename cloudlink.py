@@ -1,16 +1,16 @@
 import websockets
 import asyncio
 import json
-from typing import Optional, Iterable, TypedDict
+from typing import Any, Callable, Dict, Optional, Iterable, TypedDict, Union
 from inspect import getfullargspec
 
 from utils import full_stack
 
 VERSION = "0.1.7.7"
 
-class CloudlinkPacket(TypedDict):
+class CloudlinkPacket(TypedDict, total=False):
     cmd: str
-    val: any
+    val: Any
     id: Optional[str]
     name: Optional[str]
     origin: Optional[str]
@@ -22,8 +22,8 @@ class CloudlinkServer:
         self.pseudo_trusted_access: bool = False
         self.motd: Optional[str] = None
         self.statuscodes: dict[str, str] = {}
-        self.callbacks: dict[str, list[function]] = {}  # {"callback_name": [function1, function2, ...]}
-        self.commands: dict[str, function] = {}  # {"command_name": function1(client: CloudlinkClient, val: any)}
+        self.callbacks: dict[str, list[Callable]] = {}  # {"callback_name": [function1, function2, ...]}
+        self.commands: dict[str, Callable] = {}  # {"command_name": function1(client: CloudlinkClient, val: any)}
         self.websockets: set[websockets.WebSocketServerProtocol] = set()
         self.clients: set[CloudlinkClient] = set()
         self.usernames: dict[str, list[CloudlinkClient]] = {}  # {"username": [cl_client1, cl_client2, ...]}
@@ -91,10 +91,10 @@ class CloudlinkServer:
 
         # Process incoming packets until WebSocket closes
         try:
-            async for packet in websocket:
+            async for data in websocket:
                 # Parse packet
                 try:
-                    packet: CloudlinkPacket = json.loads(packet)
+                    packet: CloudlinkPacket = json.loads(data)
                 except:
                     await cl_client.send_statuscode("Syntax")
                     continue
@@ -195,7 +195,7 @@ class CloudlinkServer:
 
     def broadcast(
         self,
-        packet: CloudlinkPacket,
+        packet: Union[CloudlinkPacket, Dict[str, any]],
         direct_wrap: bool = False,
         clients: Optional[Iterable] = None,
         usernames: Optional[Iterable] = None
@@ -211,7 +211,8 @@ class CloudlinkServer:
                 _clients += clients
             if usernames is not None:
                 for username in usernames:
-                    _clients += self.usernames.get(username, [])
+                    type_fix = self.usernames
+                    _clients += type_fix.get(username, [])
 
         websockets.broadcast({client.websocket for client in _clients}, json.dumps(packet))
 
@@ -224,11 +225,12 @@ class CloudlinkServer:
     def send_ulist(self):
         return self.broadcast({"cmd": "ulist", "val": self.get_ulist()})
 
+    # noinspection PyAttributeOutsideInit
     async def run(self, host: str = "0.0.0.0", port: int = 3000):
         self.stop = asyncio.Future()
         self.server = await websockets.serve(self.client_handler, host, port)
         await self.stop
-        await self.server.close()
+        self.server.close()
 
 class CloudlinkClient:
     def __init__(
@@ -276,7 +278,7 @@ class CloudlinkClient:
 
         self.server.send_ulist()
 
-    async def send(self, packet: CloudlinkPacket, direct_wrap: bool = False, listener: Optional[str] = None):
+    async def send(self, packet: Union[CloudlinkPacket, Dict[str, any]], direct_wrap: bool = False, listener: Optional[str] = None):
         if direct_wrap:
             packet = {"cmd": "direct", "val": packet.copy()}
         if listener:

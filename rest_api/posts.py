@@ -1,3 +1,4 @@
+# noinspection PyTypeChecker
 from quart import Blueprint, current_app as app, request, abort
 from pydantic import BaseModel, Field
 from threading import Thread
@@ -7,6 +8,10 @@ import time
 
 import security
 from database import db, get_total_pages
+from .api_types import AuthenticatedRequest, MeowerQuart
+
+request: AuthenticatedRequest
+app: MeowerQuart
 
 
 posts_bp = Blueprint("posts_bp", __name__, url_prefix="/posts")
@@ -135,6 +140,7 @@ async def update_post():
         }})
 
     # Send update post event
+    # noinspection PyUnboundLocalVariable
     app.cl.broadcast({
         "mode": "update_post",
         "payload": post
@@ -178,6 +184,7 @@ async def delete_post():
         if not chat:
             abort(404)
     if post["post_origin"] == "inbox" or post["u"] != request.user:
+        # noinspection PyUnboundLocalVariable
         if (post["post_origin"] in ["home", "inbox"]) or (chat["owner"] != request.user):
             abort(403)
 
@@ -291,6 +298,7 @@ async def create_chat_post(chat_id):
             ],)).start()
 
     # Create post
+    # noinspection PyUnboundLocalVariable
     post = app.supporter.create_post(chat_id, request.user, body.content, chat_members=(None if chat_id == "livechat" else chat["members"]))
 
     # Return new post

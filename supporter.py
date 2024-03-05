@@ -28,7 +28,8 @@ class Supporter:
             "Kicked": "E:020 | Kicked",
             "ChatFull": "E:023 | Chat full",
             "LoggedOut": "I:024 | Logged out",
-            "Deleted": "E:025 | Deleted"
+            "Deleted": "E:025 | Deleted",
+            "UserBanned": "E:026 | User banned"
         }.items():
             self.cl.add_statuscode(code, details)
 
