@@ -1,12 +1,23 @@
+# noinspection PyTypeChecker
 import pymongo
 from quart import Blueprint, current_app as app, request, abort
 from pydantic import BaseModel, Field
+from typing import Optional
+import pymongo
 import uuid
 import time
+import secrets
+
+import security
+from database import db, get_total_pages
+from .api_types import AuthenticatedRequest, BanBody, MeowerQuart
 import msgpack
 
 import security
 from database import db, rdb, get_total_pages
+request: AuthenticatedRequest
+app: MeowerQuart
+
 
 chats_bp = Blueprint("chats_bp", __name__, url_prefix="/chats")
 
@@ -241,6 +252,9 @@ async def leave_chat(chat_id):
                 "$pull": {"members": request.user}
             })
 
+            # Delete invites
+            db.chat_invites.delete_many({"chat_id": chat_id, "inviter": request.user})
+
             # Send update chat event
             app.cl.broadcast({
                 "mode": "update_chat",
@@ -301,6 +315,7 @@ async def emit_typing(chat_id):
             abort(404)
 
     # Send new state
+    # noinspection PyUnboundLocalVariable
     app.cl.broadcast({
         "chatid": chat_id,
         "u": request.user,
@@ -345,7 +360,17 @@ async def add_chat_member(chat_id, username):
     if (not user) or (user["permissions"] is None):
         abort(404)
 
-    # Make sure requested user isn't blocked or is blocking client
+    # Make sure the user isn't banned from the chat
+    if db.chat_bans.count_documents({"_id": {
+        "chat": chat["_id"],
+        "user": username
+    }, "$or": [
+        {"expires": None},
+        {"expires": {"$gt": int(time.time())}}
+    ]}, limit=1) > 0:
+        return {"error": True, "type": "chatBanned"}, 403
+
+    # Make sure requested user isn't blocked or is blocking requester
     if db.relationships.count_documents({"$or": [
         {
             "_id": {"from": request.user, "to": username},
@@ -417,6 +442,9 @@ async def remove_chat_member(chat_id, username):
     # Update chat
     chat["members"].remove(username)
     db.chats.update_one({"_id": chat_id}, {"$pull": {"members": username}})
+
+    # Delete invites
+    db.chat_invites.delete_many({"chat_id": chat_id, "inviter": username})
 
     # Send delete chat event to user
     app.cl.broadcast({
@@ -496,6 +524,265 @@ async def transfer_chat_ownership(chat_id, username):
     return chat, 200
 
 
+@chats_bp.get("/<chat_id>/invites")
+async def get_invites(chat_id):
+    # Check authorization
+    if not request.user:
+        abort(401)
+
+    # Get page
+    page = 1
+    try:
+        page = int(request.args["page"])
+    except: pass
+
+    # Get chat
+    chat = db.chats.find_one({"_id": chat_id, "members": request.user, "deleted": False})
+    if not chat:
+        abort(404)
+
+    # Get invites
+    invites = list(db.chat_invites.find({
+        "chat_id": chat_id,
+        "$or": [
+            {"expires": None},
+            {"expires": {"$gt": int(time.time())}}
+        ]
+    }, sort=[("created_at", pymongo.ASCENDING)], skip=(page-1)*25, limit=25))
+
+    # Return invites
+    return {
+        "error": False,
+        "autoget": invites,
+        "page#": page,
+        "pages": get_total_pages("chat_invites", {"chat_id": chat_id})
+    }, 200
+
+
+@chats_bp.post("/<chat_id>/invites")
+async def create_invite(chat_id):
+    # Check authorization
+    if not request.user:
+        abort(401)
+
+    # Get chat
+    chat = db.chats.find_one({"_id": chat_id, "members": request.user, "deleted": False})
+    if not chat:
+        abort(404)
+
+    # Make sure the chat isn't a DM
+    if chat["owner"] is None:
+        abort(403)
+
+    # Check ratelimit
+    if security.ratelimited(f"update_chat:{request.user}"):
+        abort(429)
+
+    # Ratelimit
+    security.ratelimit(f"update_chat:{request.user}", 5, 5)
+
+    # Create invite code
+    invite_code = secrets.token_urlsafe(6) \
+        .replace("-", 'a')           \
+        .replace('_', 'b')           \
+        .replace("=", 'c')
+
+    # Get expiration
+    expires = None
+    try:
+        expires = int(request.args["expires"])
+    except: pass
+
+    # Create invite
+    invite = {
+        "_id": invite_code,
+        "chat_id": chat_id,
+        "inviter": request.user,
+        "created": int(time.time()),
+        "expires": expires
+    }
+    db.chat_invites.insert_one(invite)
+
+    invite["error"] = False
+    return invite, 200
+
+
+@chats_bp.delete("/<chat_id>/invites/<invite_code>")
+async def delete_invite(chat_id, invite_code):
+    # Check authorization
+    if not request.user:
+        abort(401)
+
+    # Check ratelimit
+    if security.ratelimited(f"update_chat:{request.user}"):
+        abort(429)
+
+    # Ratelimit
+    security.ratelimit(f"update_chat:{request.user}", 5, 5)
+
+    # Get invite
+    invite = db.chat_invites.find_one({
+        "_id": invite_code,
+        "$or": [
+            {"expires": None},
+            {"expires": {"$gt": int(time.time())}}
+        ]
+    })
+    if not invite:
+        abort(404)
+
+    # Get chat
+    chat = db.chats.find_one({"_id": invite["chat_id"], "members": request.user, "deleted": False})
+    if not chat:
+        abort(404)
+
+    # Make sure requester has permission to delete the invite
+    if invite["inviter"] != request.user and chat["owner"] != request.user:
+        abort(403)
+
+    # Delete the invite
+    db.chat_invites.delete_one({"_id": invite_code})
+
+    return {"error": False}, 200
+
+
+@chats_bp.get("/<chat_id>/bans")
+async def get_bans(chat_id):
+    # Check authorization
+    if not request.user:
+        abort(401)
+
+    # Get page
+    page = 1
+    try:
+        page = int(request.args["page"])
+    except: pass
+
+    # Get chat
+    chat = db.chats.find_one({"_id": chat_id, "members": request.user, "deleted": False})
+    if not chat:
+        abort(404)
+
+    # Get bans
+    bans = list(db.chat_bans.find({
+        "_id.chat": chat_id,
+        "$or": [
+            {"expires": None},
+            {"expires": {"$gt": int(time.time())}}
+        ]
+    }, sort=[("created_at", pymongo.DESCENDING)], skip=(page-1)*25, limit=25))
+
+    # Return bans
+    return {
+        "error": False,
+        "autoget": bans,
+        "page#": page,
+        "pages": get_total_pages("chat_bans", {"_id.chat": chat_id})
+    }, 200
+
+
+@chats_bp.put("/<chat_id>/bans/<username>")
+async def ban_user(chat_id, username):
+    # Check authorization
+    if not request.user:
+        abort(401)
+
+    # Check ratelimit
+    if security.ratelimited(f"update_chat:{request.user}"):
+        abort(429)
+
+    # Ratelimit
+    security.ratelimit(f"update_chat:{request.user}", 5, 5)
+
+    # Get chat
+    chat = db.chats.find_one({"_id": chat_id, "members": request.user, "deleted": False})
+    if not chat:
+        abort(404)
+
+    # Make sure requester is owner
+    if chat["owner"] != request.user:
+        abort(403)
+
+    # Make sure requested user isn't owner
+    if request.user == username:
+        abort(403)
+
+    # Get body
+    try:
+        body = BanBody(**await request.json)
+    except: abort(400)
+
+    # Make sure requested user exists and isn't deleted
+    user = db.usersv0.find_one({"_id": username}, projection={"permissions": 1})
+    if (not user) or (user["permissions"] is None):
+        abort(404)
+
+    # Create or update ban
+    ban = {
+        "_id": {"chat": chat_id, "user": username},
+        "reason": body.reason,
+        "moderator": request.user,
+        "created": int(time.time()),
+        "expires": body.expires
+    }
+    db.chat_bans.update_one({"_id": {"chat": chat_id, "user": username}}, {"$set": ban}, upsert=True)
+
+    if username in chat["members"]:
+        # Update chat
+        chat["members"].remove(username)
+        db.chats.update_one({"_id": chat_id}, {"$pull": {"members": username}})
+
+        # Delete invites
+        db.chat_invites.delete_many({"chat_id": chat_id, "inviter": username})
+
+        # Send update chat event
+        app.cl.broadcast({
+            "mode": "update_chat",
+            "payload": {
+                "_id": chat_id,
+                "members": chat["members"]
+            }
+        }, direct_wrap=True, usernames=chat["members"])
+
+        # Send delete chat event to user
+        app.cl.broadcast({"mode": "delete", "id": chat_id},  direct_wrap=True, usernames=[username])
+
+        # Send inbox message to user
+        app.supporter.create_post("inbox", username, f"You have been removed from the group chat '{chat['nickname']}' by @{request.user}!" + (f"\nReason: {body.reason}" if body.reason else ""))
+
+        # Send in-chat notification
+        app.supporter.create_post(chat_id, "Server", f"@{request.user} removed @{username} from the group chat.", chat_members=chat["members"])
+
+    ban["error"] = False 
+    return ban, 200
+
+
+@chats_bp.delete("/<chat_id>/bans/<username>")
+async def unban_user(chat_id, username):
+    # Check authorization
+    if not request.user:
+        abort(401)
+
+    # Check ratelimit
+    if security.ratelimited(f"update_chat:{request.user}"):
+        abort(429)
+
+    # Ratelimit
+    security.ratelimit(f"update_chat:{request.user}", 5, 5)
+
+    # Get chat
+    chat = db.chats.find_one({"_id": chat_id, "members": request.user, "deleted": False})
+    if not chat:
+        abort(404)
+
+    # Make sure requester is owner
+    if chat["owner"] != request.user:
+        abort(403)
+
+    # Remove ban
+    db.chat_bans.delete_one({"_id": {"chat": chat["_id"], "user": username}})
+
+    return {"error": False}, 200
 @chats_bp.get("/<chat_id>/pins")
 def get_chat_pins(chat_id):
     if not request.user:

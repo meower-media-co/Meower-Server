@@ -130,6 +130,25 @@ try:
     ], name="user_chats")
 except: pass
 
+# Create chat invites indexes
+try:
+    db.chat_invites.create_index([
+        ("chat_id", pymongo.ASCENDING)
+    ], name="chat")
+except: pass
+
+# Create chat bans indexes
+try:
+    db.chat_bans.create_index([
+        ("_id.chat", pymongo.ASCENDING)
+    ], name="chat")
+except: pass
+try:
+    db.chat_bans.create_index([
+        ("_id.user", pymongo.ASCENDING)
+    ], name="user")
+except: pass
+
 # Create reports indexes
 try:
     db.reports.create_index([

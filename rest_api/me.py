@@ -1,3 +1,4 @@
+# noinspection PyTypeChecker
 from quart import Blueprint, current_app as app, request, abort
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -7,8 +8,12 @@ import uuid
 import time
 
 import security
-from database import db, rdb, get_total_pages
+from database import db, get_total_pages, rdb
+from .api_types import AuthenticatedRequest, MeowerQuart
 
+
+request: AuthenticatedRequest
+app: MeowerQuart
 
 me_bp = Blueprint("me_bp", __name__, url_prefix="/me")
 

@@ -445,6 +445,7 @@ class MeowerCommands:
                 "reports": []
             }
         for _report in report["reports"]:
+            # noinspection PyTypeChecker
             if _report["user"] == client.username:
                 report["reports"].remove(_report)
                 break
@@ -462,6 +463,7 @@ class MeowerCommands:
 
         # Automatically remove post and escalate report if report threshold is reached
         if content_type == 0 and report["status"] == "pending" and (not report["escalated"]):
+            # noinspection PyTypeChecker
             unique_ips = set([_report["ip"] for _report in report["reports"]])
             if len(unique_ips) >= 3:
                 db.reports.update_one({"_id": report["_id"]}, {"$set": {"escalated": True}})

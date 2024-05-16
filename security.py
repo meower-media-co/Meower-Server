@@ -345,7 +345,13 @@ def delete_account(username, purge=False):
     # Update or delete chats
     for chat in db.chats.find({
         "members": username
-    }, projection={"type": 1, "owner": 1, "members": 1}):
+    }, projection={"_id": 1, "type": 1, "owner": 1, "members": 1}):
+        # Delete invites
+        db.chat_invites.delete_many({"chat_id": chat["_id"], "inviter": username})
+
+        # Delete bans
+        db.chat_bans.delete_many({"_id.user": username})
+
         if chat["type"] == 1 or len(chat["members"]) == 1:
             db.posts.delete_many({"post_origin": chat["_id"], "isDeleted": False})
             db.chats.delete_one({"_id": chat["_id"]})

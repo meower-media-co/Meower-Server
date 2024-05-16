@@ -1666,4 +1666,3 @@ async def get_profanity_whitelist(mode: str):
         "pages": max_pages,
         mode: app.supporter.filter[mode][page * 25: page * 25 + 25]
     }
-

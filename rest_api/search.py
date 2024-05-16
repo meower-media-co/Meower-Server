@@ -2,7 +2,10 @@ from quart import Blueprint, request, abort
 
 import security
 from database import db, get_total_pages
+from .api_types import AuthenticatedRequest, MeowerQuart
 
+request: AuthenticatedRequest
+app: MeowerQuart
 
 search_bp = Blueprint("search_bp", __name__, url_prefix="/search")
 
