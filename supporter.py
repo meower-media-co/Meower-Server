@@ -4,7 +4,6 @@ import uuid, time, msgpack
 
 from cloudlink import CloudlinkServer, CloudlinkClient
 from database import db, rdb, blocked_ips
-from utils import timestamp
 from uploads import FileDetails
 
 """
@@ -18,33 +17,19 @@ class Supporter:
         self.cl = cl
         self.cl.add_callback("on_open", self.on_open)
         self.cl.add_callback("on_close", self.on_close)
-        for code, details in {
-            "PasswordInvalid": "I:011 | Invalid Password",
-            "IDExists": "I:015 | Account exists",
-            "MissingPermissions": "I:017 | Missing permissions",
-            "Banned": "E:018 | Account Banned",
-            "IllegalChars": "E:019 | Illegal characters detected",
-            "Kicked": "E:020 | Kicked",
-            "ChatFull": "E:023 | Chat full",
-            "LoggedOut": "I:024 | Logged out",
-            "Deleted": "E:025 | Deleted"
-        }.items():
-            self.cl.add_statuscode(code, details)
 
         # Constant vars
-        self.repair_mode = True
         self.registration = False
 
         # Set status
         status = db.config.find_one({"_id": "status"})
-        self.repair_mode = status["repair_mode"]
         self.registration = status["registration"]
 
         # Start admin pub/sub listener
         Thread(target=self.listen_for_admin_pubsub, daemon=True).start()
     
     async def on_open(self, client: CloudlinkClient):
-        if self.repair_mode or blocked_ips.search_best(client.ip):
+        if blocked_ips.search_best(client.ip):
             client.kick(statuscode="Blocked")
 
     async def on_close(self, client: CloudlinkClient):
@@ -64,7 +49,6 @@ class Supporter:
     ) -> tuple[bool, dict]:
         # Create post ID and get timestamp
         post_id = str(uuid.uuid4())
-        ts = timestamp(1).copy()
 
         # Construct post object
         post = {
@@ -72,7 +56,9 @@ class Supporter:
             "type": 2 if origin == "inbox" else 1,
             "post_origin": origin, 
             "u": author,
-            "t": ts, 
+            "t": {
+                "e": int(time.time())
+            }, 
             "p": content,
             "attachments": attachments,
             "post_id": post_id, 

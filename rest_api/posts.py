@@ -30,6 +30,13 @@ class PostBody(BaseModel):
         validate_assignment = True
         str_strip_whitespace = True
 
+class ReportBody(BaseModel):
+    reason: str = Field(default="No reason provided", max_length=2000)
+    comment: str = Field(default="", max_length=2000)
+
+    class Config:
+        validate_assignment = True
+        str_strip_whitespace = True
 
 @posts_bp.get("/")
 @validate_querystring(PostIdQueryArgs)
@@ -133,6 +140,60 @@ async def update_post(query_args: PostIdQueryArgs, data: PostBody):
     # Return post
     post["error"] = False
     return post, 200
+
+@posts_bp.post("/<post_id>/report")
+@validate_request(ReportBody)
+async def report_post(post_id, data: ReportBody):
+    if not request.user:
+        abort(401)
+    post = db.posts.find_one({"_id": post_id})
+    if not post:
+        abort(404)
+    
+    security.ratelimit(f"report:{request.user}", 3, 5)
+    
+    report = db.reports.find_one({
+        "content_id": post_id,
+        "status": "pending",
+        "type": "post"
+    })
+
+    if not report:
+        report = {
+            "_id": str(uuid.uuid4()),
+            "type": "post",
+            "content_id": post_id,
+            "status": "pending",
+            "escalated": False,
+            "reports": []
+        }
+
+    for _report in report["reports"]:
+        if _report["user"] == request.user:
+            report["reports"].remove(_report)
+            break
+    
+    report["reports"].append({
+        "user": request.user,
+        "ip": request.ip,
+        "reason": data.reason,
+        "comment": data.comment,
+        "time": int(time.time())
+    })
+
+    db.reports.update_one({"_id": report["_id"]}, {"$set": report}, upsert=True)
+
+    unique_ips = set([_report["ip"] for _report in report["reports"]])
+
+    if report["status"] == "pending" and not report["escalated"] and len(unique_ips) >= 3:
+        db.reports.update_one({"_id": report["_id"]}, {"$set": {"escalated": True}})
+        db.posts.update_one({"_id": post_id, "isDeleted": False}, {"$set": {
+            "isDeleted": True,
+            "mod_deleted": True,
+            "deleted_at": int(time.time())
+        }})
+
+    return {"error": False}, 200
 
 
 @posts_bp.post("/<post_id>/pin")

@@ -1,4 +1,4 @@
-from quart import Blueprint, request
+from quart import Blueprint
 from quart_schema import validate_querystring
 from pydantic import BaseModel, Field
 from typing import Optional

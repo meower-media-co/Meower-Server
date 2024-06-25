@@ -4,7 +4,7 @@ Official source code of the Meower server, written in Python. Powered by CloudLi
 ## NOTICE
 This is the APIv0 Branch of Code! This API code will only be maintained up until when New Meower is released.
 
-APIv0 will be upgraded automatically to APIv1 when Beta 6 is released. The API can be found at https://api.meower.org/
+APIv0 will be upgraded automatically to APIv1 when Beta 6 is released. The API can be found at http://localhost:3001/
 
 ## Installing Dependencies
 * Run `pip3 install -r requirements.txt` in the downloaded and unzipped directory

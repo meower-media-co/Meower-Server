@@ -1,8 +1,2 @@
 __pycache__/
-
-# Cloudflared windows executable
-*.exe 
-
-*.json
-
-*.env
+.env

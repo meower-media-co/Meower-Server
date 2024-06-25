@@ -19,12 +19,6 @@ from rest_api import app as rest_api
 if __name__ == "__main__":
     # Create Cloudlink server
     cl = CloudlinkServer()
-    cl.set_real_ip_header(os.getenv("REAL_IP_HEADER"))
-    cl.set_pseudo_trusted_access(True)
-    cl.set_motd("Meower Social Media Platform Server")
-    cl.remove_command("setid")
-    cl.remove_command("gmsg")
-    cl.remove_command("gvar")
 
     # Create Supporter class
     supporter = Supporter(cl)

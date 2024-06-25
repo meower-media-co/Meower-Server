@@ -1,6 +1,6 @@
 from quart import Quart, request
 from quart_cors import cors
-from quart_schema import QuartSchema, RequestSchemaValidationError, validate_headers, hide, deprecate
+from quart_schema import QuartSchema, RequestSchemaValidationError, validate_headers, hide
 from pydantic import BaseModel
 import time, os
 
@@ -11,10 +11,10 @@ from .posts import posts_bp
 from .users import users_bp
 from .chats import chats_bp
 from .search import search_bp
-from .uploads import uploads_bp
 from .admin import admin_bp
+from .auth import auth_bp
 
-from database import db, blocked_ips, registration_blocked_ips
+from database import db, blocked_ips
 import security
 
 
@@ -31,28 +31,10 @@ class TokenHeader(BaseModel):
 
 
 @app.before_request
-async def check_repair_mode():
-    if app.supporter.repair_mode and request.path != "/status":
-        return {"error": True, "type": "repairModeEnabled"}, 503
-
-
-@app.before_request
 async def check_ip():
     request.ip = (request.headers.get("Cf-Connecting-Ip", request.remote_addr))
     if request.path != "/status" and blocked_ips.search_best(request.ip):
         return {"error": True, "type": "ipBlocked"}, 403
-        
-@app.before_request
-async def origin_blocker():
-    origin = request.headers.get("Host")
-    result = db.config.find_one({"_id": "origin_blocklist"})
-    
-    if not result:
-       return {"error": True, "type": "Internal", "message": "There was an error reading the origin block list. Please notify a member of the backend team immediately."}, 500
-    
-    if origin in result["contents"]:
-        return {"error": True, "type": "Unauthorized", "message": "This host has been blocked from accessing Meower. If this is a mistake, please contact support@meower.org."}, 401
-
 
 @app.before_request
 @validate_headers(TokenHeader)
@@ -65,7 +47,7 @@ async def check_auth(headers: TokenHeader):
     token = headers.token
 
     # Authenticate request
-    if token and request.path != "/status":
+    if token:
         account = db.usersv0.find_one({"tokens": token}, projection={
             "_id": 1,
             "flags": 1,
@@ -85,29 +67,6 @@ async def check_auth(headers: TokenHeader):
 @hide
 async def index():
 	return "Hello world! The Meower API is working, but it's under construction. Please come back later.", 200
-
-
-@app.get("/ip")  # Deprecated
-@deprecate()
-async def ip_tracer():
-	return "", 410
-
-
-@app.get("/favicon.ico")  # Favicon, my ass. We need no favicon for an API.
-@hide
-async def favicon_my_ass():
-	return "", 200
-
-
-@app.get("/status")
-async def get_status():
-    return {
-        "scratchDeprecated": True,
-        "registrationEnabled": app.supporter.registration,
-        "isRepairMode": app.supporter.repair_mode,
-        "ipBlocked": (blocked_ips.search_best(request.ip) is not None),
-        "ipRegistrationBlocked": (registration_blocked_ips.search_best(request.ip) is not None)
-    }, 200
 
 
 @app.get("/statistics")
@@ -188,11 +147,6 @@ async def internal(e):
 	return {"error": True, "type": "Internal"}, 500
 
 
-@app.errorhandler(501)  # Not implemented
-async def not_implemented(e):
-      return {"error": True, "type": "notImplemented"}, 501
-
-
 # Register blueprints
 app.register_blueprint(home_bp)
 app.register_blueprint(me_bp)
@@ -201,5 +155,5 @@ app.register_blueprint(posts_bp)
 app.register_blueprint(users_bp)
 app.register_blueprint(chats_bp)
 app.register_blueprint(search_bp)
-app.register_blueprint(uploads_bp)
 app.register_blueprint(admin_bp)
+app.register_blueprint(auth_bp)

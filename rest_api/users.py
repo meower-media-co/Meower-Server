@@ -25,6 +25,13 @@ class UpdateRelationshipBody(BaseModel):
     class Config:
         validate_assignment = True
 
+class ReportBody(BaseModel):
+    reason: str = Field(default="No reason provided", min_length=1, max_length=2000)
+    comment: str = Field(default="", max_length=2000)
+
+    class Config:
+        validate_assignment = True
+        str_strip_whitespace = True
 
 @users_bp.before_request
 async def check_user_exists():
@@ -133,9 +140,50 @@ async def update_relationship(username, data: UpdateRelationshipBody):
         }
     }, direct_wrap=True, usernames=[request.user])
 
-    # Return updated relationship
+    # Return updated relationshipFeat/api accounts
     del relationship["_id"]
     return relationship, 200
+
+@users_bp.post("/report")
+@validate_request(ReportBody)
+async def report_post(username, data: ReportBody):
+    if not request.user:
+        abort(401)
+
+    security.ratelimit(f"report:{request.user}", 3, 5)
+    
+    report = db.reports.find_one({
+        "content_id": username,
+        "status": "pending",
+        "type": "user"
+    })
+
+    if not report:
+        report = {
+            "_id": str(uuid.uuid4()),
+            "type": "user",
+            "content_id": username,
+            "status": "pending",
+            "escalated": False,
+            "reports": []
+        }
+
+    for _report in report["reports"]:
+        if _report["user"] == request.user:
+            report["reports"].remove(_report)
+            break
+    
+    report["reports"].append({
+        "user": request.user,
+        "ip": request.ip,
+        "reason": data.reason,
+        "comment": data.comment,
+        "time": int(time.time())
+    })
+
+    db.reports.update_one({"_id": report["_id"]}, {"$set": report}, upsert=True)
+
+    return {"error": False}, 200
 
 
 @users_bp.get("/dm")

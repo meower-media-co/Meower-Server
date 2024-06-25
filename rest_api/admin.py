@@ -1356,28 +1356,6 @@ async def kick_all_clients():
     return {"error": False}, 200
 
 
-@admin_bp.post("/server/enable-repair-mode")
-async def enable_repair_mode():
-    # Check permissions
-    if not security.has_permission(request.permissions, security.AdminPermissions.SYSADMIN):
-        abort(401)
-
-    # Update database item
-    db.config.update_one({"_id": "status"}, {"$set": {"repair_mode": True}})
-
-    # Update supporter attribute
-    app.supporter.repair_mode = True
-
-    # Kick all clients
-    for client in copy(app.cl.clients):
-        client.kick(statuscode="Kicked")
-
-    # Add log
-    security.add_audit_log("enabled_repair_mode", request.user, request.ip, {})
-
-    return {"error": False}, 200
-
-
 @admin_bp.post("/server/registration/disable")
 async def disable_registration():
     # Check permissions
