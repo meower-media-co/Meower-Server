@@ -26,6 +26,7 @@ async def search_home(query_args: SearchQueryArgs):
             skip=(query_args.page-1)*25,
             limit=25
         ), requester=request.user),
+        "page": query_args.page,
         "page#": query_args.page,
         "pages": get_total_pages("posts", query)
     }, 200
@@ -42,6 +43,7 @@ async def search_users(query_args: SearchQueryArgs):
     return {
         "error": False,
         "autoget": [security.get_account(username) for username in usernames],
+        "page": query_args.page,
         "page#": query_args.page,
         "pages": get_total_pages("usersv0", query)
     }, 200

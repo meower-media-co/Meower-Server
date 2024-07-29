@@ -52,6 +52,7 @@ async def get_chats():
     return {
         "error": False,
         "autoget": chats,
+        "page": 1,
         "page#": 1,
         "pages": 1
     }, 200

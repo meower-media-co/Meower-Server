@@ -469,6 +469,7 @@ async def get_report_history(query_args: GetReportsQueryArgs):
     return {
         "error": False,
         "autoget": reports,
+        "page": query_args.page,
         "page#": query_args.page,
         "pages": get_total_pages("reports", {"reports.user": request.user}),
     }, 200

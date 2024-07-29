@@ -1,6 +1,6 @@
-from quart import Quart, request, abort
+from quart import Quart, abort, request
 from quart_cors import cors
-from quart_schema import QuartSchema, RequestSchemaValidationError, validate_headers, hide
+from quart_schema import QuartSchema, RequestSchemaValidationError, validate_headers
 from pydantic import BaseModel
 import time, os
 
@@ -14,7 +14,7 @@ from .chats import chats_bp
 from .search import search_bp
 from .admin import admin_bp
 
-from database import db, blocked_ips, registration_blocked_ips
+from database import db, blocked_ips
 import security
 
 
@@ -28,35 +28,28 @@ QuartSchema(app)
 
 class TokenHeader(BaseModel):
     token: str | None = None
-    username: str | None = None
 
 
 @app.before_request
 async def check_repair_mode():
-    if app.supporter.repair_mode and request.path != "/status":
+    if app.supporter.repair_mode:
         return {"error": True, "type": "repairModeEnabled"}, 503
 
 
 @app.before_request
 async def internal_auth():
-    if "Cf-Connecting-Ip" not in request.headers:  # Make sure there's no Cf-Connecting-Ip header
-        if request.headers.get("X-Internal-Token") == os.getenv("INTERNAL_API_TOKEN"):  # Check internal token
-            # Safety check
-            if os.getenv("INTERNAL_API_TOKEN") == "" and request.remote_addr != "127.0.0.1":
+    if 'Cf-Connecting-Ip' not in request.headers:
+        if request.headers.get("X-Internal-Token") == os.getenv("API_INTERNAL_TOKEN"):
+            if os.getenv("API_INTERNAL_TOKEN") == "" and request.remote_addr != "127.0.0.1":
                 abort(401)
-
-            request.internal_ip = request.headers.get("X-Internal-Ip")
-            request.internal_username = request.headers.get("X-Internal-Username")
-            request.bypass_captcha = True
-
 
 @app.before_request
 async def check_ip():
-    if hasattr(request, "internal_ip") and request.internal_ip:  # internal IP forwarding
-        request.ip = request.internal_ip
+    if request.headers.get("X-Internal-Ip"):
+        request.ip = request.headers.get("X-Internal-Ip")
     else:
         request.ip = (request.headers.get("Cf-Connecting-Ip", request.remote_addr))
-    if request.path != "/status" and blocked_ips.search_best(request.ip):
+    if blocked_ips.search_best(request.ip):
         return {"error": True, "type": "ipBlocked"}, 403
 
 
@@ -69,56 +62,40 @@ async def check_auth(headers: TokenHeader):
 
     # Authenticate request
     account = None
-    if request.path != "/status":
-        if hasattr(request, "internal_username") and request.internal_username:  # internal auth
-            account = db.usersv0.find_one({"_id": request.internal_username}, projection={
-                "_id": 1,
-                "flags": 1,
-                "permissions": 1,
-                "ban.state": 1,
-                "ban.expires": 1
-            })
-        elif headers.token:  # external auth
-            account = db.usersv0.find_one({"tokens": headers.token}, projection={
-                "_id": 1,
-                "flags": 1,
-                "permissions": 1,
-                "ban.state": 1,
-                "ban.expires": 1
-            })
-        
-        if account:
-            if account["ban"]["state"] == "perm_ban" or (account["ban"]["state"] == "temp_ban" and account["ban"]["expires"] > time.time()):
-                return {"error": True, "type": "accountBanned"}, 403
-            request.user = account["_id"]
-            request.flags = account["flags"]
-            request.permissions = account["permissions"]
+
+    if request.headers.get("X-Internal-Username"):
+        account = db.usersv0.find_one({"_id": request.headers.get("X-Internal-Username")}, projection={
+            "_id": 1,
+            "flags": 1,
+            "permissions": 1,
+            "ban.state": 1,
+            "ban.expires": 1
+        })
+    elif headers.token:  # external auth
+        account = db.usersv0.find_one({"tokens": headers.token}, projection={
+            "_id": 1,
+            "flags": 1,
+            "permissions": 1,
+            "ban.state": 1,
+            "ban.expires": 1
+        })
+    
+    if account:
+        if account["ban"]["state"] == "perm_ban" or (account["ban"]["state"] == "temp_ban" and account["ban"]["expires"] > time.time()):
+            return {"error": True, "type": "accountBanned"}, 403
+        request.user = account["_id"]
+        request.flags = account["flags"]
+        request.permissions = account["permissions"]
 
 
-@app.get("/")  # Welcome message
+@app.get("/")
 async def index():
 	return {
         "captcha": {
             "enabled": os.getenv("CAPTCHA_SECRET") is not None,
             "sitekey": os.getenv("CAPTCHA_SITEKEY")
-        }
-    }, 200
-
-
-@app.get("/favicon.ico")  # Favicon, my ass. We need no favicon for an API.
-@hide
-async def favicon_my_ass():
-	return "", 200
-
-
-@app.get("/status")
-async def get_status():
-    return {
-        "scratchDeprecated": True,
-        "registrationEnabled": app.supporter.registration,
-        "isRepairMode": app.supporter.repair_mode,
-        "ipBlocked": (blocked_ips.search_best(request.ip) is not None),
-        "ipRegistrationBlocked": (registration_blocked_ips.search_best(request.ip) is not None)
+        },
+        "registration_enabled": app.supporter.registration
     }, 200
 
 
@@ -155,6 +132,7 @@ async def get_ulist():
     return {
         "error": False,
         "autoget": [security.get_account(username) for username in usernames],
+        "page": page,
         "page#": page,
         "pages": pages
     }, 200

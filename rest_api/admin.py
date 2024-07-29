@@ -163,6 +163,7 @@ async def get_reports(query_args: GetReportsQueryArgs):
     return {
         "error": False,
         "autoget": reports,
+        "page": query_args.page,
         "page#": query_args.page,
         "pages": get_total_pages("reports", query),
     }, 200
@@ -471,6 +472,7 @@ async def get_users(query_args: GetUsersQueryArgs):
     return {
         "error": False,
         "autoget": [security.get_account(username) for username in usernames],
+        "page": query_args.page,
         "page#": query_args.page,
         "pages": get_total_pages("usersv0", {}),
     }, 200
@@ -748,6 +750,7 @@ async def get_user_posts(username, query_args: GetUserPostsQueryArgs):
     return {
         "error": False,
         "autoget": app.supporter.parse_posts_v0(posts, requester=request.user),
+        "page": query_args.page,
         "page#": query_args.page,
         "pages": get_total_pages("posts", query),
     }, 200
@@ -1086,7 +1089,8 @@ async def get_chat_posts(chat_id, query_args: GetChatPostsQueryArgs):
     # Return posts
     return {
         "error": False,
-        "autoget": app.supporter.parse_posts_v0(post, requester=request.user),
+        "autoget": app.supporter.parse_posts_v0(posts, requester=request.user),
+        "page": query_args.page,
         "page#": query_args.page,
         "pages": get_total_pages("posts", query)
     }, 200
@@ -1149,6 +1153,7 @@ async def get_netblocks(query_args: GetNetblocksQueryArgs):
     return {
         "error": False,
         "autoget": netblocks,
+        "page": query_args.page,
         "page#": query_args.page,
         "pages": get_total_pages("netblock", {})
     }, 200
@@ -1286,6 +1291,7 @@ async def get_announcements(query_args: GetAnnouncementsQueryArgs):
     return {
         "error": False,
         "autoget": app.supporter.parse_posts_v0(posts, requester=request.user),
+        "page": query_args.page,
         "page#": query_args.page,
         "pages": get_total_pages("posts", query),
     }, 200

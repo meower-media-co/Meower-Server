@@ -8,7 +8,7 @@ import uvicorn
 
 from threading import Thread
 
-from cloudlink import CloudlinkServer
+from cloudlink.server import CloudlinkServer
 from supporter import Supporter
 from security import background_tasks_loop
 from grpc_auth import service as grpc_auth
